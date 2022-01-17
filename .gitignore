@@ -1,0 +1,6 @@
+*.hex
+*.o
+*.asm
+*.lss
+.vscode
+

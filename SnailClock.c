@@ -20,7 +20,7 @@
 #include <avr/io.h>
 #include <avr/interrupt.h>
 #include <util/delay.h>
-#include "light_ws2812.h"
+#include "light_ws2812/light_ws2812_AVR/Light_WS2812/light_ws2812.h"
 
 /*
 / Modes : SetTime, Counting Down
@@ -32,7 +32,7 @@ volatile uint8_t illuminationNumber = 0;
 volatile uint8_t needToUpdateLights = 0;
 volatile uint8_t lightIntensity = 50;
 
-volatile uint8_t minutesOnClock = 29;
+volatile uint8_t minutesOnClock = 14;
 volatile uint8_t secondsOnClock = SECONDS_RESET_VALUE;
 volatile uint8_t timerHasExpired = 0;
 

@@ -4,14 +4,16 @@
 # Change these parameters for your device
 
 F_CPU = 8000000
-DEVICE = attiny85
+DEVICE = atmega328p
 
 # Tools:
 CC = avr-gcc
 
+LIGHT_LIB = light_ws2812/light_ws2812_AVR
+
 LIB       = light_ws2812
-EXAMPLES  = PingPong
-DEP		  = ws2812_config.h Light_WS2812/light_ws2812.h
+EXAMPLES  = SnailClock
+DEP		  = $(LIGHT_LIB)/ws2812_config.h $(LIGHT_LIB)/Light_WS2812/light_ws2812.h
 
 CFLAGS = -g2 -I. -ILight_WS2812 -mmcu=$(DEVICE) -DF_CPU=$(F_CPU) 
 CFLAGS+= -Os -ffunction-sections -fdata-sections -fpack-struct -fno-move-loop-invariants -fno-tree-scev-cprop -fno-inline-small-functions  
@@ -24,23 +26,19 @@ all:	$(EXAMPLES)
 
 $(LIB): $(DEP)
 	@echo Building Library 
-	@$(CC) $(CFLAGS) -o Objects/$@.o -c Light_WS2812/$@.c 
+	@$(CC) $(CFLAGS) -o Objects/$@.o -c $(LIGHT_LIB)/Light_WS2812/$@.c 
 
 $(EXAMPLES): $(LIB) 
 	@echo Building $@
-	@$(CC) $(CFLAGS) -o Objects/$@.o Examples/$@.c Light_WS2812/$^.c
-	@avr-size Objects/$@.o
-	@avr-objcopy -j .text  -j .data -O ihex Objects/$@.o $@.hex
-	@avr-objdump -d -S Objects/$@.o >Objects/$@.lss
-
-% : $(LIB)
-	@echo Building $@
-	@$(CC) $(CFLAGS) -o Objects/$@.o Examples/$@.c Light_WS2812/$^.c
+	@$(CC) $(CFLAGS) -o Objects/$@.o $@.c $(LIGHT_LIB)/Light_WS2812/$^.c
 	@avr-size Objects/$@.o
 	@avr-objcopy -j .text  -j .data -O ihex Objects/$@.o $@.hex
 	@avr-objdump -d -S Objects/$@.o >Objects/$@.lss
 
 .PHONY:	clean
+
+flash: 
+	avrdude -p atmega328p -c usbasp -U flash:w:SnailClock.hex
 
 clean:
 	rm -f *.hex Objects/*.o Objects/*.lss
