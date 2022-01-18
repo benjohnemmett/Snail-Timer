@@ -3,8 +3,9 @@
 *
 * For Atmega328
 *
-* $ make SnailClock DEVICE=atmega328p
-* $ avrdude -p atmega328p -c usbasp -U flash:w:SnailClock.hex 
+* Build & Flash
+* $ make
+* $ make flash
 */
 
 
@@ -12,9 +13,6 @@
 
 #define TC1_8MHZ_256PS_1SEC_TICKS 31250
 #define SECONDS_RESET_VALUE 59
-
-#define LIGHT_INTENSITY_1 50
-#define LIGHT_INTENSITY_2 10
 
 #include <util/delay.h>
 #include <avr/io.h>
@@ -27,24 +25,22 @@
 */
 
 struct cRGB led[MAX_NUM_LIGHTS];
-volatile uint8_t numberOfLights = MAX_NUM_LIGHTS;
-volatile uint8_t illuminationNumber = 0;
-volatile uint8_t needToUpdateLights = 0;
 volatile uint8_t lightIntensity = 50;
 
-volatile uint8_t minutesOnClock = 14;
+volatile uint8_t minutesOnClock = 1;
 volatile uint8_t secondsOnClock = SECONDS_RESET_VALUE;
 volatile uint8_t timerHasExpired = 0;
+volatile uint8_t baseLightIntensity = 50;
 
-void SetLastLightTo(uint8_t red, uint8_t green, uint8_t blue) {
-    led[illuminationNumber].r = red;
-    led[illuminationNumber].g = green;
-    led[illuminationNumber].b = blue;
+void SetOneLightTo(uint8_t lightIndex, uint8_t red, uint8_t green, uint8_t blue) {
+    led[lightIndex].r = red;
+    led[lightIndex].g = green;
+    led[lightIndex].b = blue;
 }
 
-void SetAllLightsTo(uint8_t red, uint8_t green, uint8_t blue) {
-    for(uint8_t i = 0; i < numberOfLights; i++) {
-        if ( i >= illuminationNumber) {
+void SetLastStringOfLightsTo(uint8_t numberOfLightsToChange, uint8_t red, uint8_t green, uint8_t blue) {
+    for(uint8_t i = 0; i < MAX_NUM_LIGHTS; i++) {
+        if ( i >= numberOfLightsToChange) {
             led[i].r = red;
             led[i].g = green;
             led[i].b = blue;
@@ -57,13 +53,20 @@ void SetAllLightsTo(uint8_t red, uint8_t green, uint8_t blue) {
 }
 
 void UpdateLights() {
-    ws2812_setleds(led, numberOfLights);
+    ws2812_setleds(led, MAX_NUM_LIGHTS);
+}
+
+void ClearLights() {
+    DDRB |= (1 << PB1);
+    PORTB |= (1 << PB1);
+    SetLastStringOfLightsTo(MAX_NUM_LIGHTS, 0, 0, 0);
+    UpdateLights();
 }
 
 /*
     Using 256 prescaler count up to 31,250
 */
-void SetupSecondTimer() {
+void SetupTimer() {
     ICR1 = TC1_8MHZ_256PS_1SEC_TICKS; // TOP Value
     TIMSK1 |= (1 << ICF1); // Enable intterupt when ICR1 value is reached
     TCCR1B |= (1 << WGM13) | (1 << WGM12); // Set to CTC mode
@@ -72,51 +75,66 @@ void SetupSecondTimer() {
 
 ISR(TIMER1_CAPT_vect) {
     PORTB ^= (1 << PB1);
-    if (secondsOnClock > 0) {
-        secondsOnClock--;
-    } else {
-        if (minutesOnClock > 0) {
-            minutesOnClock--;
-            secondsOnClock = SECONDS_RESET_VALUE;
+    if (!timerHasExpired) {
+        if (secondsOnClock > 0) {
+            secondsOnClock--;
         } else {
-            timerHasExpired = 1;
+            if (minutesOnClock > 0) {
+                minutesOnClock--;
+                secondsOnClock = SECONDS_RESET_VALUE;
+            } else {
+                timerHasExpired = 1;
+            }
         }
     }
-    // if (secondsOnClock % 2 == 0) {
-    //     lightIntensity = LIGHT_INTENSITY_1;
-    // } else {
-    //     lightIntensity = LIGHT_INTENSITY_2;
-    // }
-    // needToUpdateLights = 1;
+}
+
+uint8_t GetPulseOffsetValue() {
+    uint8_t timerHighBits = TCNT1H >> 2;
+    uint8_t timerLowBits = TCNT1L;
+
+    return timerHighBits;
+}
+
+void RunUpdate() {
+    uint8_t lightsToLightUp = MAX_NUM_LIGHTS - minutesOnClock - 1;
+
+    uint8_t pulseOffsetValue = GetPulseOffsetValue();
+
+    SetLastStringOfLightsTo(lightsToLightUp, 0, 0, baseLightIntensity);
+    SetOneLightTo(lightsToLightUp, 0, baseLightIntensity + pulseOffsetValue, baseLightIntensity);
+    UpdateLights();
+
+    _delay_ms(100);
+}
+
+void RunTimerCompleteRoutine() {
+
+    for (uint8_t i = MAX_NUM_LIGHTS; i > 0; i--) {
+        SetLastStringOfLightsTo(i, 0, baseLightIntensity + i, baseLightIntensity);
+        UpdateLights();
+        _delay_ms(15);
+    }
+    for (uint8_t i = 0; i <= MAX_NUM_LIGHTS; i++) {
+        SetLastStringOfLightsTo(i, i, baseLightIntensity, baseLightIntensity);
+        UpdateLights();
+        _delay_ms(15);
+    }
+
 }
 
 int main() {
-    // Check Startup State
 
-    // Allocate light data buffer
-    SetupSecondTimer();
-
-    // TEST CODE - Setup lights
-    DDRB |= (1 << PB1);
-    PORTB |= (1 << PB1);
-    illuminationNumber = 30;
-    SetAllLightsTo(0, 0, 0);
-    UpdateLights();
-    illuminationNumber = 0;
+    SetupTimer();
+    ClearLights();
 
     sei();
 
-    // while loop
     while(1) {
-        //if (needToUpdateLights) {
-            illuminationNumber = MAX_NUM_LIGHTS - minutesOnClock - 1;
-            uint8_t timerHighBits = TCNT1H >> 2;
-            uint8_t timerLowBits = TCNT1L;
-            SetAllLightsTo(0, 0, 50);
-            SetLastLightTo(0, 50  + timerHighBits, 20);
-            UpdateLights();
-            needToUpdateLights = 0;
-        //}
-        _delay_ms(100);
+        RunUpdate();
+        if (timerHasExpired) {
+            RunTimerCompleteRoutine();
+            timerHasExpired = 0;
+        }
     }
 }

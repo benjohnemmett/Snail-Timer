@@ -5,6 +5,7 @@
 
 F_CPU = 8000000
 DEVICE = atmega328p
+PROGRAMMER = usbasp
 
 # Tools:
 CC = avr-gcc
@@ -18,7 +19,6 @@ DEP		  = $(LIGHT_LIB)/ws2812_config.h $(LIGHT_LIB)/Light_WS2812/light_ws2812.h
 CFLAGS = -g2 -I. -ILight_WS2812 -mmcu=$(DEVICE) -DF_CPU=$(F_CPU) 
 CFLAGS+= -Os -ffunction-sections -fdata-sections -fpack-struct -fno-move-loop-invariants -fno-tree-scev-cprop -fno-inline-small-functions  
 CFLAGS+= -Wall -Wno-pointer-to-int-cast
-#CFLAGS+= -Wa,-ahls=$<.lst
 
 LDFLAGS = -Wl,--relax,--section-start=.text=0,-Map=main.map
 
@@ -38,7 +38,7 @@ $(EXAMPLES): $(LIB)
 .PHONY:	clean
 
 flash: 
-	avrdude -p atmega328p -c usbasp -U flash:w:SnailClock.hex
+	avrdude -p $(DEVICE) -c $(PROGRAMMER) -U flash:w:SnailClock.hex
 
 clean:
 	rm -f *.hex Objects/*.o Objects/*.lss
