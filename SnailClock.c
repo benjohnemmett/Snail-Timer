@@ -27,7 +27,7 @@
 struct cRGB led[MAX_NUM_LIGHTS];
 volatile uint8_t lightIntensity = 50;
 
-volatile uint8_t minutesOnClock = 1;
+volatile uint8_t minutesOnClock = 5;
 volatile uint8_t secondsOnClock = SECONDS_RESET_VALUE;
 volatile uint8_t timerHasExpired = 0;
 volatile uint8_t baseLightIntensity = 50;
@@ -89,6 +89,17 @@ ISR(TIMER1_CAPT_vect) {
     }
 }
 
+void ResetTimer() {
+    TCNT1 = 1;
+    minutesOnClock = 4;
+    secondsOnClock = SECONDS_RESET_VALUE;
+    timerHasExpired = 0;
+}
+
+ISR(INT0_vect) {
+    ResetTimer();
+}
+
 uint8_t GetPulseOffsetValue() {
     uint8_t timerHighBits = TCNT1H >> 2;
     uint8_t timerLowBits = TCNT1L;
@@ -123,10 +134,16 @@ void RunTimerCompleteRoutine() {
 
 }
 
+void SetupInputs() {
+    EICRA |= (1 << ISC01) | (1 << ISC00); // INT0 Rising edge
+    EIMSK |= (1 << INT0); // enable INT0
+}
+
 int main() {
 
     SetupTimer();
     ClearLights();
+    SetupInputs();
 
     sei();
 

@@ -37,7 +37,7 @@ $(EXAMPLES): $(LIB)
 
 .PHONY:	clean
 
-flash: 
+flash: $(EXAMPLES)
 	avrdude -p $(DEVICE) -c $(PROGRAMMER) -U flash:w:SnailClock.hex
 
 clean:
