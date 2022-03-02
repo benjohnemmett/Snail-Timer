@@ -27,6 +27,20 @@
 struct cRGB led[MAX_NUM_LIGHTS];
 volatile uint8_t lightIntensity = 50;
 
+
+volatile struct {
+    uint8_t minutes;
+    uint8_t menuBrightness;
+} timerSettings;
+
+volatile struct {
+    uint8_t minutes;
+    uint8_t seconds;
+    uint8_t isRunning;
+} timerState;
+
+enum {INIT, MAIN, COUNTDOWN, EXPIRED} timerMode;
+
 volatile uint8_t minutesOnClock = 5;
 volatile uint8_t secondsOnClock = SECONDS_RESET_VALUE;
 volatile uint8_t timerHasExpired = 0;
@@ -39,8 +53,9 @@ void SetOneLightTo(uint8_t lightIndex, uint8_t red, uint8_t green, uint8_t blue)
 }
 
 void SetLastStringOfLightsTo(uint8_t numberOfLightsToChange, uint8_t red, uint8_t green, uint8_t blue) {
+    uint8_t firstLightToChange = MAX_NUM_LIGHTS - numberOfLightsToChange;
     for(uint8_t i = 0; i < MAX_NUM_LIGHTS; i++) {
-        if ( i >= numberOfLightsToChange) {
+        if ( i >= firstLightToChange) {
             led[i].r = red;
             led[i].g = green;
             led[i].b = blue;
@@ -66,7 +81,7 @@ void ClearLights() {
 /*
     Using 256 prescaler count up to 31,250
 */
-void SetupTimer() {
+void SetupTimer1() {
     ICR1 = TC1_8MHZ_256PS_1SEC_TICKS; // TOP Value
     TIMSK1 |= (1 << ICF1); // Enable intterupt when ICR1 value is reached
     TCCR1B |= (1 << WGM13) | (1 << WGM12); // Set to CTC mode
@@ -75,49 +90,31 @@ void SetupTimer() {
 
 ISR(TIMER1_CAPT_vect) {
     PORTB ^= (1 << PB1);
-    if (!timerHasExpired) {
-        if (secondsOnClock > 0) {
-            secondsOnClock--;
+    if (timerState.isRunning) {
+        if (timerState.seconds > 0) {
+            timerState.seconds--;
         } else {
-            if (minutesOnClock > 0) {
-                minutesOnClock--;
-                secondsOnClock = SECONDS_RESET_VALUE;
+            if (timerState.minutes > 0) {
+                timerState.minutes--;
+                timerState.seconds = SECONDS_RESET_VALUE;
             } else {
-                timerHasExpired = 1;
+                timerState.isRunning = 0;
             }
         }
     }
 }
 
-void ResetTimer() {
+void ResetCountdownTimer() {
     TCNT1 = 1;
-    minutesOnClock = 4;
-    secondsOnClock = SECONDS_RESET_VALUE;
-    timerHasExpired = 0;
+    timerState.minutes = 4;
+    timerState.seconds = SECONDS_RESET_VALUE;
+    timerState.isRunning = 1;
 }
 
 ISR(INT0_vect) {
-    ResetTimer();
+    ResetCountdownTimer();
 }
 
-uint8_t GetPulseOffsetValue() {
-    uint8_t timerHighBits = TCNT1H >> 2;
-    uint8_t timerLowBits = TCNT1L;
-
-    return timerHighBits;
-}
-
-void RunUpdate() {
-    uint8_t lightsToLightUp = MAX_NUM_LIGHTS - minutesOnClock - 1;
-
-    uint8_t pulseOffsetValue = GetPulseOffsetValue();
-
-    SetLastStringOfLightsTo(lightsToLightUp, 0, 0, baseLightIntensity);
-    SetOneLightTo(lightsToLightUp, 0, baseLightIntensity + pulseOffsetValue, baseLightIntensity);
-    UpdateLights();
-
-    _delay_ms(100);
-}
 
 void RunTimerCompleteRoutine() {
 
@@ -131,27 +128,98 @@ void RunTimerCompleteRoutine() {
         UpdateLights();
         _delay_ms(15);
     }
-
 }
 
+void TestSettingLastLights() {
+
+    for (uint8_t i = 0; i <= MAX_NUM_LIGHTS; i++) {
+        SetLastStringOfLightsTo(i, 0, 0, 127);
+        UpdateLights();
+        _delay_ms(500);
+    }
+}
+
+//////// Initialization Functions ////////
 void SetupInputs() {
     EICRA |= (1 << ISC01) | (1 << ISC00); // INT0 Rising edge
     EIMSK |= (1 << INT0); // enable INT0
 }
 
+//////// MAIN MODE UPDATES ////////
+void UpdateMenuBrightness() {
+    uint8_t menuBrightnessIsGoingUp = timerSettings.menuBrightness % 2; // Odd is up
+    if (menuBrightnessIsGoingUp) {
+        timerSettings.menuBrightness += 2;
+        if (timerSettings.menuBrightness > 200) {
+            timerSettings.menuBrightness = 200;
+        }
+    } else {
+        timerSettings.menuBrightness -= 2;
+        if (timerSettings.menuBrightness < 100) {
+            timerSettings.menuBrightness = 99;
+        }
+    }
+}
+
+void RunMainModeUpdate() {
+    UpdateMenuBrightness();
+    SetLastStringOfLightsTo(timerSettings.minutes, 0, timerSettings.menuBrightness, 0);
+    UpdateLights();
+    _delay_ms(20);
+}
+
+//////// Countdown Routine Functions ////////
+uint8_t GetPulseOffsetValue() {
+    uint8_t timerHighBits = TCNT1H >> 2;
+    uint8_t timerLowBits = TCNT1L;
+
+    return timerHighBits;
+}
+
+void RunCountdownUpdate() {
+    uint8_t lightsToLightUp = timerState.minutes;
+
+    uint8_t pulseOffsetValue = GetPulseOffsetValue();
+
+    SetLastStringOfLightsTo(lightsToLightUp, 0, 0, baseLightIntensity);
+    SetOneLightTo(lightsToLightUp, 0, baseLightIntensity + pulseOffsetValue, baseLightIntensity);
+    UpdateLights();
+
+    _delay_ms(100);
+}
+
 int main() {
 
-    SetupTimer();
+    timerSettings.minutes = 5;
+
+    timerMode = INIT;
+    timerState.minutes = 5;
+    timerState.seconds = 0;
+
+    SetupTimer1();
     ClearLights();
     SetupInputs();
 
     sei();
 
     while(1) {
-        RunUpdate();
-        if (timerHasExpired) {
-            RunTimerCompleteRoutine();
-            timerHasExpired = 0;
+        switch(timerMode) {
+            case (INIT): {
+                timerMode = MAIN;
+                break;
+            }
+            case (MAIN): {
+                RunMainModeUpdate();
+                break;
+            }
+            case (COUNTDOWN): {
+
+                break;
+            }
+            case (EXPIRED): {
+                 break;
+            }
         }
+
     }
 }
