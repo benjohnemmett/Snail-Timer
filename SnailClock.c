@@ -27,6 +27,7 @@
 struct cRGB led[MAX_NUM_LIGHTS];
 volatile uint8_t lightIntensity = 50;
 
+volatile uint8_t PCINT21LastState = 0;
 
 volatile struct {
     uint8_t minutes;
@@ -104,17 +105,35 @@ ISR(TIMER1_CAPT_vect) {
     }
 }
 
+
+//////// Button Interrupts
 void ResetCountdownTimer() {
     TCNT1 = 1;
-    timerState.minutes = 4;
+    timerState.minutes = timerSettings.minutes;
     timerState.seconds = SECONDS_RESET_VALUE;
     timerState.isRunning = 1;
+}
+
+void StartButtonPressed() {
+    if (timerMode == MAIN) {
+        timerMode = COUNTDOWN;
+        ResetCountdownTimer();
+    } else {
+        timerMode = MAIN;
+    }
 }
 
 ISR(INT0_vect) {
     ResetCountdownTimer();
 }
 
+// Setup button PD5/PCINT21
+ISR(PCINT2_vect) {
+    if (!PCINT21LastState && (PIND & _BV(PD5))) {
+        StartButtonPressed();
+    }
+    PCINT21LastState = (PIND & PD5);
+}
 
 void RunTimerCompleteRoutine() {
 
@@ -130,19 +149,32 @@ void RunTimerCompleteRoutine() {
     }
 }
 
-void TestSettingLastLights() {
+// void TestSettingLastLights() {
 
-    for (uint8_t i = 0; i <= MAX_NUM_LIGHTS; i++) {
-        SetLastStringOfLightsTo(i, 0, 0, 127);
-        UpdateLights();
-        _delay_ms(500);
-    }
-}
+//     for (uint8_t i = 0; i <= MAX_NUM_LIGHTS; i++) {
+//         SetLastStringOfLightsTo(i, 0, 0, 127);
+//         UpdateLights();
+//         _delay_ms(500);
+//     }
+// }
+
+// void TestSettingOneLight() {
+//     for (uint8_t i = 0; i < MAX_NUM_LIGHTS; i++) {
+//         ClearLights();
+//         SetOneLightTo(i, 0, 0, 127);
+//         UpdateLights();
+//         _delay_ms(500);
+//     }
+// }
 
 //////// Initialization Functions ////////
 void SetupInputs() {
     EICRA |= (1 << ISC01) | (1 << ISC00); // INT0 Rising edge
     EIMSK |= (1 << INT0); // enable INT0
+
+    //PCINT21 (PD5) -> START
+    PCICR |= (1 << PCIE2);
+    PCMSK2 |= (1 << PCINT21);
 }
 
 //////// MAIN MODE UPDATES ////////
@@ -178,11 +210,11 @@ uint8_t GetPulseOffsetValue() {
 
 void RunCountdownUpdate() {
     uint8_t lightsToLightUp = timerState.minutes;
-
+    uint8_t indexOfMainLight = MAX_NUM_LIGHTS - timerState.minutes;
     uint8_t pulseOffsetValue = GetPulseOffsetValue();
 
     SetLastStringOfLightsTo(lightsToLightUp, 0, 0, baseLightIntensity);
-    SetOneLightTo(lightsToLightUp, 0, baseLightIntensity + pulseOffsetValue, baseLightIntensity);
+    SetOneLightTo(indexOfMainLight, 0, baseLightIntensity + pulseOffsetValue, baseLightIntensity);
     UpdateLights();
 
     _delay_ms(100);
@@ -190,7 +222,7 @@ void RunCountdownUpdate() {
 
 int main() {
 
-    timerSettings.minutes = 5;
+    timerSettings.minutes = 10;
 
     timerMode = INIT;
     timerState.minutes = 5;
@@ -213,13 +245,12 @@ int main() {
                 break;
             }
             case (COUNTDOWN): {
-
+                RunCountdownUpdate();
                 break;
             }
             case (EXPIRED): {
                  break;
             }
         }
-
     }
 }
