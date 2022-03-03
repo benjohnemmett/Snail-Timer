@@ -42,9 +42,6 @@ volatile struct {
 
 enum {INIT, MAIN, COUNTDOWN, EXPIRED} timerMode;
 
-volatile uint8_t minutesOnClock = 5;
-volatile uint8_t secondsOnClock = SECONDS_RESET_VALUE;
-volatile uint8_t timerHasExpired = 0;
 volatile uint8_t baseLightIntensity = 50;
 
 void SetOneLightTo(uint8_t lightIndex, uint8_t red, uint8_t green, uint8_t blue) {
@@ -123,8 +120,28 @@ void StartButtonPressed() {
     }
 }
 
+void PlusButtonPressed() {
+    if (timerMode == MAIN) {
+        if (timerSettings.minutes < MAX_NUM_LIGHTS) {
+            timerSettings.minutes++;
+        }
+    }
+}
+
+void MinusButtonPressed() {
+    if (timerMode == MAIN) {
+        if (timerSettings.minutes > 0) {
+            timerSettings.minutes--;
+        }
+    }
+}
+
 ISR(INT0_vect) {
-    ResetCountdownTimer();
+    MinusButtonPressed();
+}
+
+ISR(INT1_vect) {
+    PlusButtonPressed();
 }
 
 // Setup button PD5/PCINT21
@@ -171,6 +188,9 @@ void RunTimerCompleteRoutine() {
 void SetupInputs() {
     EICRA |= (1 << ISC01) | (1 << ISC00); // INT0 Rising edge
     EIMSK |= (1 << INT0); // enable INT0
+
+    EICRA |= (1 << ISC11) | (1 << ISC10); // INT1 Rising edge
+    EIMSK |= (1 << INT1); // enable INT1
 
     //PCINT21 (PD5) -> START
     PCICR |= (1 << PCIE2);
