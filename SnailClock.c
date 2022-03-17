@@ -8,9 +8,7 @@
 * $ make flash
 */
 
-
 #define MAX_NUM_LIGHTS 30
-
 #define TC1_8MHZ_256PS_1SEC_TICKS 31250
 #define SECONDS_RESET_VALUE 59
 
@@ -20,12 +18,7 @@
 #include <util/delay.h>
 #include "light_ws2812/light_ws2812_AVR/Light_WS2812/light_ws2812.h"
 
-/*
-/ Modes : SetTime, Counting Down
-*/
-
 struct cRGB led[MAX_NUM_LIGHTS];
-volatile uint8_t lightIntensity = 50;
 
 volatile uint8_t PCINT21LastState = 0;
 
@@ -37,10 +30,14 @@ volatile struct {
 volatile struct {
     uint8_t minutes;
     uint8_t seconds;
-    uint8_t isRunning;
 } timerState;
 
-enum {INIT, MAIN, COUNTDOWN, EXPIRED} timerMode;
+struct {
+    uint8_t numberOfLightsIlluminated;
+    uint8_t isGoingUp;
+} expiredState;
+
+volatile enum {INIT, MAIN, COUNTDOWN, EXPIRED} timerMode, nextMode;
 
 volatile uint8_t baseLightIntensity = 50;
 
@@ -70,25 +67,31 @@ void UpdateLights() {
 }
 
 void ClearLights() {
-    DDRB |= (1 << PB1);
-    PORTB |= (1 << PB1);
     SetLastStringOfLightsTo(MAX_NUM_LIGHTS, 0, 0, 0);
     UpdateLights();
 }
 
-/*
-    Using 256 prescaler count up to 31,250
-*/
-void SetupTimer1() {
-    ICR1 = TC1_8MHZ_256PS_1SEC_TICKS; // TOP Value
-    TIMSK1 |= (1 << ICF1); // Enable intterupt when ICR1 value is reached
-    TCCR1B |= (1 << WGM13) | (1 << WGM12); // Set to CTC mode
-    TCCR1B |= (1 << CS12); // prescaler 256
-}
+// void TestSettingLastLights() {
+//     for (uint8_t i = 0; i <= MAX_NUM_LIGHTS; i++) {
+//         SetLastStringOfLightsTo(i, 0, 0, 127);
+//         UpdateLights();
+//         _delay_ms(100);
+//     }
+// }
 
+// void TestSettingOneLight() {
+//     for (uint8_t i = 0; i < MAX_NUM_LIGHTS; i++) {
+//         ClearLights();
+//         SetOneLightTo(i, 0, 0, 127);
+//         UpdateLights();
+//         _delay_ms(100);
+//     }
+// }
+
+
+//////// Timer Interrupt ////////
 ISR(TIMER1_CAPT_vect) {
-    PORTB ^= (1 << PB1);
-    if (timerState.isRunning) {
+    if (timerMode == COUNTDOWN) {
         if (timerState.seconds > 0) {
             timerState.seconds--;
         } else {
@@ -96,27 +99,31 @@ ISR(TIMER1_CAPT_vect) {
                 timerState.minutes--;
                 timerState.seconds = SECONDS_RESET_VALUE;
             } else {
-                timerState.isRunning = 0;
+                nextMode = EXPIRED;
             }
         }
     }
 }
 
 
-//////// Button Interrupts
-void ResetCountdownTimer() {
-    TCNT1 = 1;
-    timerState.minutes = timerSettings.minutes;
-    timerState.seconds = SECONDS_RESET_VALUE;
-    timerState.isRunning = 1;
+//////// Button Interrupts ////////
+void SetupInputs() {
+    EICRA |= (1 << ISC01) | (1 << ISC00); // INT0 Rising edge
+    EIMSK |= (1 << INT0); // enable INT0
+
+    EICRA |= (1 << ISC11) | (1 << ISC10); // INT1 Rising edge
+    EIMSK |= (1 << INT1); // enable INT1
+
+    //PCINT21 (PD5) -> START
+    PCICR |= (1 << PCIE2);
+    PCMSK2 |= (1 << PCINT21);
 }
 
 void StartButtonPressed() {
     if (timerMode == MAIN) {
-        timerMode = COUNTDOWN;
-        ResetCountdownTimer();
+        nextMode = COUNTDOWN;
     } else {
-        timerMode = MAIN;
+        nextMode = MAIN;
     }
 }
 
@@ -144,71 +151,30 @@ ISR(INT1_vect) {
     PlusButtonPressed();
 }
 
-// Setup button PD5/PCINT21
 ISR(PCINT2_vect) {
     if (!PCINT21LastState && (PIND & _BV(PD5))) {
         StartButtonPressed();
     }
-    PCINT21LastState = (PIND & PD5);
+    PCINT21LastState = (PIND & _BV(PD5));
 }
 
-void RunTimerCompleteRoutine() {
-
-    for (uint8_t i = MAX_NUM_LIGHTS; i > 0; i--) {
-        SetLastStringOfLightsTo(i, 0, baseLightIntensity + i, baseLightIntensity);
-        UpdateLights();
-        _delay_ms(15);
-    }
-    for (uint8_t i = 0; i <= MAX_NUM_LIGHTS; i++) {
-        SetLastStringOfLightsTo(i, i, baseLightIntensity, baseLightIntensity);
-        UpdateLights();
-        _delay_ms(15);
-    }
-}
-
-// void TestSettingLastLights() {
-
-//     for (uint8_t i = 0; i <= MAX_NUM_LIGHTS; i++) {
-//         SetLastStringOfLightsTo(i, 0, 0, 127);
-//         UpdateLights();
-//         _delay_ms(500);
-//     }
-// }
-
-// void TestSettingOneLight() {
-//     for (uint8_t i = 0; i < MAX_NUM_LIGHTS; i++) {
-//         ClearLights();
-//         SetOneLightTo(i, 0, 0, 127);
-//         UpdateLights();
-//         _delay_ms(500);
-//     }
-// }
-
-//////// Initialization Functions ////////
-void SetupInputs() {
-    EICRA |= (1 << ISC01) | (1 << ISC00); // INT0 Rising edge
-    EIMSK |= (1 << INT0); // enable INT0
-
-    EICRA |= (1 << ISC11) | (1 << ISC10); // INT1 Rising edge
-    EIMSK |= (1 << INT1); // enable INT1
-
-    //PCINT21 (PD5) -> START
-    PCICR |= (1 << PCIE2);
-    PCMSK2 |= (1 << PCINT21);
-}
 
 //////// MAIN MODE UPDATES ////////
+void EnterMainMode() {
+    timerSettings.menuBrightness = 49;
+}
+
 void UpdateMenuBrightness() {
     uint8_t menuBrightnessIsGoingUp = timerSettings.menuBrightness % 2; // Odd is up
     if (menuBrightnessIsGoingUp) {
         timerSettings.menuBrightness += 2;
-        if (timerSettings.menuBrightness > 200) {
-            timerSettings.menuBrightness = 200;
+        if (timerSettings.menuBrightness > 127) {
+            timerSettings.menuBrightness = 126;
         }
     } else {
         timerSettings.menuBrightness -= 2;
-        if (timerSettings.menuBrightness < 100) {
-            timerSettings.menuBrightness = 99;
+        if (timerSettings.menuBrightness < 50) {
+            timerSettings.menuBrightness = 49;
         }
     }
 }
@@ -221,6 +187,26 @@ void RunMainModeUpdate() {
 }
 
 //////// Countdown Routine Functions ////////
+// Using 256 prescaler count up to 31,250 each second.
+void SetupTimer1() {
+    ICR1 = TC1_8MHZ_256PS_1SEC_TICKS; // TOP Value
+    TIMSK1 |= (1 << ICF1); // Enable intterupt when ICR1 value is reached
+    TCCR1B |= (1 << WGM13) | (1 << WGM12); // Set to CTC mode
+    TCCR1B |= (1 << CS12); // prescaler 256
+}
+
+void StopTimer1() {
+    TCCR1B &= ~(_BV(CS12) | _BV(CS11) | _BV(CS10)); // Stop Timer
+    TIMSK1 &= ~_BV(ICF1); // Disable intterupt
+}
+
+void EnterCountdownMode() {
+    TCNT1 = 1;
+    SetupTimer1();
+    timerState.minutes = timerSettings.minutes;
+    timerState.seconds = 0;
+}
+
 uint8_t GetPulseOffsetValue() {
     uint8_t timerHighBits = TCNT1H >> 2;
     uint8_t timerLowBits = TCNT1L;
@@ -230,7 +216,7 @@ uint8_t GetPulseOffsetValue() {
 
 void RunCountdownUpdate() {
     uint8_t lightsToLightUp = timerState.minutes;
-    uint8_t indexOfMainLight = MAX_NUM_LIGHTS - timerState.minutes;
+    uint8_t indexOfMainLight = (MAX_NUM_LIGHTS - timerState.minutes) - 1;
     uint8_t pulseOffsetValue = GetPulseOffsetValue();
 
     SetLastStringOfLightsTo(lightsToLightUp, 0, 0, baseLightIntensity);
@@ -240,13 +226,73 @@ void RunCountdownUpdate() {
     _delay_ms(100);
 }
 
+void ExitCountdownMode() {
+    StopTimer1();
+}
+
+
+//////// Expired Update Functions ////////
+void EnterExpiredMode() {
+    expiredState.numberOfLightsIlluminated = 0;
+    expiredState.isGoingUp = 1;
+}
+
+void RunTimerExpiredUpdate() {
+    if (expiredState.isGoingUp) {
+        expiredState.numberOfLightsIlluminated++;
+        if (expiredState.numberOfLightsIlluminated >= MAX_NUM_LIGHTS) {
+            expiredState.isGoingUp = 0;
+        }
+    } else {
+        expiredState.numberOfLightsIlluminated--;
+        if (expiredState.numberOfLightsIlluminated == 0) {
+            expiredState.isGoingUp = 1;
+        }
+    }
+
+    SetLastStringOfLightsTo(expiredState.numberOfLightsIlluminated, 50, 0, 0);
+    UpdateLights();
+    _delay_ms(100);
+}
+
+
+////////////////
+void CheckForModeChange() {
+    if (nextMode != timerMode) {
+        cli();
+        switch(timerMode) {
+            case COUNTDOWN: {
+                ExitCountdownMode();
+                break;
+            }
+        }
+        switch(nextMode) {
+            case INIT: {
+                break;
+            }
+            case MAIN: {
+                EnterMainMode();
+                break;
+            }
+            case COUNTDOWN: {
+                EnterCountdownMode();
+                break;
+            }
+            case EXPIRED: {
+                EnterExpiredMode();
+                break;
+            }
+        }
+        timerMode = nextMode;
+        sei();
+    }
+}
+
 int main() {
 
     timerSettings.minutes = 10;
 
     timerMode = INIT;
-    timerState.minutes = 5;
-    timerState.seconds = 0;
 
     SetupTimer1();
     ClearLights();
@@ -255,9 +301,10 @@ int main() {
     sei();
 
     while(1) {
+        CheckForModeChange();
         switch(timerMode) {
             case (INIT): {
-                timerMode = MAIN;
+                nextMode = MAIN;
                 break;
             }
             case (MAIN): {
@@ -269,7 +316,8 @@ int main() {
                 break;
             }
             case (EXPIRED): {
-                 break;
+                RunTimerExpiredUpdate();
+                break;
             }
         }
     }
