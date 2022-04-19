@@ -1,16 +1,12 @@
 /*
-* A WS2812 light string timer.
+* A count down timer using a WS2812 LED string.
 *
-* For Atmega328
+* For Atmega328 with 8MHz internal clock
 *
 * Build & Flash
 * $ make
 * $ make flash
 */
-
-#define MAX_NUM_LIGHTS 30
-#define TC1_8MHZ_256PS_1SEC_TICKS 31250
-#define SECONDS_RESET_VALUE 59
 
 #include <util/delay.h>
 #include <avr/io.h>
@@ -18,7 +14,12 @@
 #include <util/delay.h>
 #include "light_ws2812/light_ws2812_AVR/Light_WS2812/light_ws2812.h"
 
-struct cRGB led[MAX_NUM_LIGHTS];
+#define TOTAL_NUM_LIGHTS 30
+#define TC1_8MHZ_256PS_1SEC_TICKS 31250
+#define SECONDS_RESET_VALUE 59
+#define BASE_LIGHT_INTENSITY 50
+
+struct cRGB led[TOTAL_NUM_LIGHTS];
 
 volatile uint8_t PCINT21LastState = 0;
 
@@ -39,8 +40,8 @@ struct {
 
 volatile enum {INIT, MAIN, COUNTDOWN, EXPIRED} timerMode, nextMode;
 
-volatile uint8_t baseLightIntensity = 50;
 
+//////// Light Helper Functions ////////
 void SetOneLightTo(uint8_t lightIndex, uint8_t red, uint8_t green, uint8_t blue) {
     led[lightIndex].r = red;
     led[lightIndex].g = green;
@@ -48,8 +49,8 @@ void SetOneLightTo(uint8_t lightIndex, uint8_t red, uint8_t green, uint8_t blue)
 }
 
 void SetLastStringOfLightsTo(uint8_t numberOfLightsToChange, uint8_t red, uint8_t green, uint8_t blue) {
-    uint8_t firstLightToChange = MAX_NUM_LIGHTS - numberOfLightsToChange;
-    for(uint8_t i = 0; i < MAX_NUM_LIGHTS; i++) {
+    uint8_t firstLightToChange = TOTAL_NUM_LIGHTS - numberOfLightsToChange;
+    for(uint8_t i = 0; i < TOTAL_NUM_LIGHTS; i++) {
         if ( i >= firstLightToChange) {
             led[i].r = red;
             led[i].g = green;
@@ -63,11 +64,11 @@ void SetLastStringOfLightsTo(uint8_t numberOfLightsToChange, uint8_t red, uint8_
 }
 
 void UpdateLights() {
-    ws2812_setleds(led, MAX_NUM_LIGHTS);
+    ws2812_setleds(led, TOTAL_NUM_LIGHTS);
 }
 
 void ClearLights() {
-    SetLastStringOfLightsTo(MAX_NUM_LIGHTS, 0, 0, 0);
+    SetLastStringOfLightsTo(TOTAL_NUM_LIGHTS, 0, 0, 0);
     UpdateLights();
 }
 
@@ -86,7 +87,6 @@ ISR(TIMER1_CAPT_vect) {
         }
     }
 }
-
 
 //////// Button Interrupts ////////
 void SetupInputs() {
@@ -111,7 +111,7 @@ void StartButtonPressed() {
 
 void PlusButtonPressed() {
     if (timerMode == MAIN) {
-        if (timerSettings.minutes < MAX_NUM_LIGHTS) {
+        if (timerSettings.minutes < TOTAL_NUM_LIGHTS) {
             timerSettings.minutes++;
         }
     }
@@ -163,7 +163,7 @@ void UpdateMenuBrightness() {
 
 void RunMainModeUpdate() {
     UpdateMenuBrightness();
-    SetLastStringOfLightsTo(timerSettings.minutes, 0, timerSettings.menuBrightness, 0);
+    SetLastStringOfLightsTo(timerSettings.minutes, 0, 0, timerSettings.menuBrightness);
     UpdateLights();
     _delay_ms(20);
 }
@@ -198,11 +198,11 @@ uint8_t GetPulseOffsetValue() {
 
 void RunCountdownUpdate() {
     uint8_t lightsToLightUp = timerState.minutes;
-    uint8_t indexOfMainLight = (MAX_NUM_LIGHTS - timerState.minutes) - 1;
+    uint8_t indexOfMainLight = (TOTAL_NUM_LIGHTS - timerState.minutes) - 1;
     uint8_t pulseOffsetValue = GetPulseOffsetValue();
 
-    SetLastStringOfLightsTo(lightsToLightUp, 0, 0, baseLightIntensity);
-    SetOneLightTo(indexOfMainLight, 0, baseLightIntensity + pulseOffsetValue, baseLightIntensity);
+    SetLastStringOfLightsTo(lightsToLightUp, 0, BASE_LIGHT_INTENSITY, 0);
+    SetOneLightTo(indexOfMainLight, BASE_LIGHT_INTENSITY, BASE_LIGHT_INTENSITY + pulseOffsetValue, 0);
     UpdateLights();
 
     _delay_ms(100);
@@ -222,7 +222,7 @@ void EnterExpiredMode() {
 void RunTimerExpiredUpdate() {
     if (expiredState.isGoingUp) {
         expiredState.numberOfLightsIlluminated++;
-        if (expiredState.numberOfLightsIlluminated >= MAX_NUM_LIGHTS) {
+        if (expiredState.numberOfLightsIlluminated >= TOTAL_NUM_LIGHTS) {
             expiredState.isGoingUp = 0;
         }
     } else {
@@ -237,10 +237,10 @@ void RunTimerExpiredUpdate() {
     _delay_ms(100);
 }
 
-
 ////////////////
 void CheckForModeChange() {
-    if (nextMode != timerMode) {
+    uint8_t modeHasChanged = nextMode != timerMode;
+    if (modeHasChanged) {
         cli();
         switch(timerMode) {
             case COUNTDOWN: {
