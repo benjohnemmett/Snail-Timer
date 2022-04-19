@@ -71,24 +71,6 @@ void ClearLights() {
     UpdateLights();
 }
 
-// void TestSettingLastLights() {
-//     for (uint8_t i = 0; i <= MAX_NUM_LIGHTS; i++) {
-//         SetLastStringOfLightsTo(i, 0, 0, 127);
-//         UpdateLights();
-//         _delay_ms(100);
-//     }
-// }
-
-// void TestSettingOneLight() {
-//     for (uint8_t i = 0; i < MAX_NUM_LIGHTS; i++) {
-//         ClearLights();
-//         SetOneLightTo(i, 0, 0, 127);
-//         UpdateLights();
-//         _delay_ms(100);
-//     }
-// }
-
-
 //////// Timer Interrupt ////////
 ISR(TIMER1_CAPT_vect) {
     if (timerMode == COUNTDOWN) {
